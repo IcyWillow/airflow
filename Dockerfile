@@ -1,264 +1,364 @@
-                              Apache License
-                        Version 2.0, January 2004
-                     http://www.apache.org/licenses/
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# WARNING: THIS DOCKERFILE IS NOT INTENDED FOR PRODUCTION USE OR DEPLOYMENT.
+#
+ARG PYTHON_BASE_IMAGE="python:3.6-slim-stretch"
+FROM ${PYTHON_BASE_IMAGE} as main
 
-TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+SHELL ["/bin/bash", "-o", "pipefail", "-e", "-u", "-x", "-c"]
 
-1. Definitions.
+ARG PYTHON_BASE_IMAGE="python:3.6-slim-stretch"
+ENV PYTHON_BASE_IMAGE=${PYTHON_BASE_IMAGE}
 
-   "License" shall mean the terms and conditions for use, reproduction,
-   and distribution as defined by Sections 1 through 9 of this document.
+ARG AIRFLOW_VERSION="2.0.0.dev0"
+ENV AIRFLOW_VERSION=$AIRFLOW_VERSION
 
-   "Licensor" shall mean the copyright owner or entity authorized by
-   the copyright owner that is granting the License.
+# Print versions
+RUN echo "Base image: ${PYTHON_BASE_IMAGE}"
+RUN echo "Airflow version: ${AIRFLOW_VERSION}"
 
-   "Legal Entity" shall mean the union of the acting entity and all
-   other entities that control, are controlled by, or are under common
-   control with that entity. For the purposes of this definition,
-   "control" means (i) the power, direct or indirect, to cause the
-   direction or management of such entity, whether by contract or
-   otherwise, or (ii) ownership of fifty percent (50%) or more of the
-   outstanding shares, or (iii) beneficial ownership of such entity.
+# Make sure noninteractive debian install is used and language variables set
+ENV DEBIAN_FRONTEND=noninteractive LANGUAGE=C.UTF-8 LANG=C.UTF-8 LC_ALL=C.UTF-8 \
+    LC_CTYPE=C.UTF-8 LC_MESSAGES=C.UTF-8
 
-   "You" (or "Your") shall mean an individual or Legal Entity
-   exercising permissions granted by this License.
+# By increasing this number we can do force build of all dependencies
+ARG DEPENDENCIES_EPOCH_NUMBER="1"
+# Increase the value below to force renstalling of all dependencies
+ENV DEPENDENCIES_EPOCH_NUMBER=${DEPENDENCIES_EPOCH_NUMBER}
 
-   "Source" form shall mean the preferred form for making modifications,
-   including but not limited to software source code, documentation
-   source, and configuration files.
+# Install curl and gnupg2 - needed to download nodejs in the next step
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+           curl \
+           gnupg2 \
+    && apt-get autoremove -yqq --purge \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
-   "Object" form shall mean any form resulting from mechanical
-   transformation or translation of a Source form, including but
-   not limited to compiled object code, generated documentation,
-   and conversions to other media types.
+# Install basic apt dependencies
+RUN curl -sL https://deb.nodesource.com/setup_10.x | bash - \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+           apt-utils \
+           build-essential \
+           curl \
+           dirmngr \
+           freetds-bin \
+           freetds-dev \
+           git \
+           gosu \
+           libffi-dev \
+           libkrb5-dev \
+           libpq-dev \
+           libsasl2-2 \
+           libsasl2-dev \
+           libsasl2-modules \
+           libssl-dev \
+           locales  \
+           netcat \
+           nodejs \
+           rsync \
+           sasl2-bin \
+           sudo \
+    && apt-get autoremove -yqq --purge \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
-   "Work" shall mean the work of authorship, whether in Source or
-   Object form, made available under the License, as indicated by a
-   copyright notice that is included in or attached to the work
-   (an example is provided in the Appendix below).
+# Install graphviz - needed to build docs with diagrams
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+           graphviz \
+    && apt-get autoremove -yqq --purge \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
-   "Derivative Works" shall mean any work, whether in Source or Object
-   form, that is based on (or derived from) the Work and for which the
-   editorial revisions, annotations, elaborations, or other modifications
-   represent, as a whole, an original work of authorship. For the purposes
-   of this License, Derivative Works shall not include works that remain
-   separable from, or merely link (or bind by name) to the interfaces of,
-   the Work and Derivative Works thereof.
+# Install MySQL client from Oracle repositories (Debian installs mariadb)
+RUN KEY="A4A9406876FCBD3C456770C88C718D3B5072E1F5" \
+    && GNUPGHOME="$(mktemp -d)" \
+    && export GNUPGHOME \
+    && for KEYSERVER in $(shuf -e \
+            ha.pool.sks-keyservers.net \
+            hkp://p80.pool.sks-keyservers.net:80 \
+            keyserver.ubuntu.com \
+            hkp://keyserver.ubuntu.com:80 \
+            pgp.mit.edu) ; do \
+          gpg --keyserver "${KEYSERVER}" --recv-keys "${KEY}" && break || true ; \
+       done \
+    && gpg --export "${KEY}" | apt-key add - \
+    && gpgconf --kill all \
+    rm -rf "${GNUPGHOME}"; \
+    apt-key list > /dev/null \
+    && echo "deb http://repo.mysql.com/apt/debian/ stretch mysql-5.6" | tee -a /etc/apt/sources.list.d/mysql.list \
+    && apt-get update \
+    && apt-get install --no-install-recommends -y \
+        libmysqlclient-dev \
+        mysql-client \
+    && apt-get autoremove -yqq --purge \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-   "Contribution" shall mean any work of authorship, including
-   the original version of the Work and any modifications or additions
-   to that Work or Derivative Works thereof, that is intentionally
-   submitted to Licensor for inclusion in the Work by the copyright owner
-   or by an individual or Legal Entity authorized to submit on behalf of
-   the copyright owner. For the purposes of this definition, "submitted"
-   means any form of electronic, verbal, or written communication sent
-   to the Licensor or its representatives, including but not limited to
-   communication on electronic mailing lists, source code control systems,
-   and issue tracking systems that are managed by, or on behalf of, the
-   Licensor for the purpose of discussing and improving the Work, but
-   excluding communication that is conspicuously marked or otherwise
-   designated in writing by the copyright owner as "Not a Contribution."
+RUN adduser airflow \
+    && echo "airflow ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/airflow \
+    && chmod 0440 /etc/sudoers.d/airflow
 
-   "Contributor" shall mean Licensor and any individual or Legal Entity
-   on behalf of whom a Contribution has been received by Licensor and
-   subsequently incorporated within the Work.
+ENV JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64/
 
-2. Grant of Copyright License. Subject to the terms and conditions of
-   this License, each Contributor hereby grants to You a perpetual,
-   worldwide, non-exclusive, no-charge, royalty-free, irrevocable
-   copyright license to reproduce, prepare Derivative Works of,
-   publicly display, publicly perform, sublicense, and distribute the
-   Work and such Derivative Works in Source or Object form.
+# Note missing man directories on debian-stretch
+# https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=863199
+RUN mkdir -pv /usr/share/man/man1 \
+    && mkdir -pv /usr/share/man/man7 \
+    && apt-get update \
+    && apt-get install --no-install-recommends -y \
+      gnupg \
+      apt-transport-https \
+      ca-certificates \
+      software-properties-common \
+      krb5-user \
+      ldap-utils \
+      less \
+      lsb-release \
+      net-tools \
+      openjdk-8-jdk \
+      openssh-client \
+      openssh-server \
+      postgresql-client \
+      python-selinux \
+      sqlite3 \
+      tmux \
+      unzip \
+      vim \
+    && apt-get autoremove -yqq --purge \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
-3. Grant of Patent License. Subject to the terms and conditions of
-   this License, each Contributor hereby grants to You a perpetual,
-   worldwide, non-exclusive, no-charge, royalty-free, irrevocable
-   (except as stated in this section) patent license to make, have made,
-   use, offer to sell, sell, import, and otherwise transfer the Work,
-   where such license applies only to those patent claims licensable
-   by such Contributor that are necessarily infringed by their
-   Contribution(s) alone or by combination of their Contribution(s)
-   with the Work to which such Contribution(s) was submitted. If You
-   institute patent litigation against any entity (including a
-   cross-claim or counterclaim in a lawsuit) alleging that the Work
-   or a Contribution incorporated within the Work constitutes direct
-   or contributory patent infringement, then any patent licenses
-   granted to You under this License for that Work shall terminate
-   as of the date such litigation is filed.
+ENV HADOOP_DISTRO="cdh" HADOOP_MAJOR="5" HADOOP_DISTRO_VERSION="5.11.0" HADOOP_VERSION="2.6.0" \
+    HADOOP_HOME="/opt/hadoop-cdh"
+ENV HIVE_VERSION="1.1.0" HIVE_HOME="/opt/hive"
+ENV HADOOP_URL="https://archive.cloudera.com/${HADOOP_DISTRO}${HADOOP_MAJOR}/${HADOOP_DISTRO}/${HADOOP_MAJOR}/"
+ENV MINICLUSTER_BASE="https://github.com/bolkedebruin/minicluster/releases/download/" \
+    MINICLUSTER_HOME="/opt/minicluster" \
+    MINICLUSTER_VER="1.1"
 
-4. Redistribution. You may reproduce and distribute copies of the
-   Work or Derivative Works thereof in any medium, with or without
-   modifications, and in Source or Object form, provided that You
-   meet the following conditions:
+RUN mkdir -pv "${HADOOP_HOME}" \
+    && mkdir -pv "${HIVE_HOME}" \
+    && mkdir -pv "${MINICLUSTER_HOME}" \
+    && mkdir -pv "/user/hive/warehouse" \
+    && chmod -R 777 "${HIVE_HOME}" \
+    && chmod -R 777 "/user/"
 
-   (a) You must give any other recipients of the Work or
-       Derivative Works a copy of this License; and
+ENV HADOOP_DOWNLOAD_URL="${HADOOP_URL}hadoop-${HADOOP_VERSION}-${HADOOP_DISTRO}${HADOOP_DISTRO_VERSION}.tar.gz" \
+    HADOOP_TMP_FILE="/tmp/hadoop.tar.gz"
 
-   (b) You must cause any modified files to carry prominent notices
-       stating that You changed the files; and
+RUN curl -sL "${HADOOP_DOWNLOAD_URL}" >"${HADOOP_TMP_FILE}" \
+    && tar xzf "${HADOOP_TMP_FILE}" --absolute-names --strip-components 1 -C "${HADOOP_HOME}" \
+    && rm "${HADOOP_TMP_FILE}"
 
-   (c) You must retain, in the Source form of any Derivative Works
-       that You distribute, all copyright, patent, trademark, and
-       attribution notices from the Source form of the Work,
-       excluding those notices that do not pertain to any part of
-       the Derivative Works; and
+ENV HIVE_URL="${HADOOP_URL}hive-${HIVE_VERSION}-${HADOOP_DISTRO}${HADOOP_DISTRO_VERSION}.tar.gz" \
+    HIVE_TMP_FILE="/tmp/hive.tar.gz"
 
-   (d) If the Work includes a "NOTICE" text file as part of its
-       distribution, then any Derivative Works that You distribute must
-       include a readable copy of the attribution notices contained
-       within such NOTICE file, excluding those notices that do not
-       pertain to any part of the Derivative Works, in at least one
-       of the following places: within a NOTICE text file distributed
-       as part of the Derivative Works; within the Source form or
-       documentation, if provided along with the Derivative Works; or,
-       within a display generated by the Derivative Works, if and
-       wherever such third-party notices normally appear. The contents
-       of the NOTICE file are for informational purposes only and
-       do not modify the License. You may add Your own attribution
-       notices within Derivative Works that You distribute, alongside
-       or as an addendum to the NOTICE text from the Work, provided
-       that such additional attribution notices cannot be construed
-       as modifying the License.
+RUN curl -sL "${HIVE_URL}" >"${HIVE_TMP_FILE}" \
+    && tar xzf "${HIVE_TMP_FILE}" --strip-components 1 -C "${HIVE_HOME}" \
+    && rm "${HIVE_TMP_FILE}"
 
-   You may add Your own copyright statement to Your modifications and
-   may provide additional or different license terms and conditions
-   for use, reproduction, or distribution of Your modifications, or
-   for any such Derivative Works as a whole, provided Your use,
-   reproduction, and distribution of the Work otherwise complies with
-   the conditions stated in this License.
+ENV MINICLUSTER_URL="${MINICLUSTER_BASE}${MINICLUSTER_VER}/minicluster-${MINICLUSTER_VER}-SNAPSHOT-bin.zip" \
+    MINICLUSTER_TMP_FILE="/tmp/minicluster.zip"
 
-5. Submission of Contributions. Unless You explicitly state otherwise,
-   any Contribution intentionally submitted for inclusion in the Work
-   by You to the Licensor shall be under the terms and conditions of
-   this License, without any additional terms or conditions.
-   Notwithstanding the above, nothing herein shall supersede or modify
-   the terms of any separate license agreement you may have executed
-   with Licensor regarding such Contributions.
+RUN curl -sL "${MINICLUSTER_URL}" > "${MINICLUSTER_TMP_FILE}" \
+    && unzip "${MINICLUSTER_TMP_FILE}" -d "/opt" \
+    && rm "${MINICLUSTER_TMP_FILE}"
 
-6. Trademarks. This License does not grant permission to use the trade
-   names, trademarks, service marks, or product names of the Licensor,
-   except as required for reasonable and customary use in describing the
-   origin of the Work and reproducing the content of the NOTICE file.
+ENV PATH "${PATH}:/opt/hive/bin"
 
-7. Disclaimer of Warranty. Unless required by applicable law or
-   agreed to in writing, Licensor provides the Work (and each
-   Contributor provides its Contributions) on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
-   implied, including, without limitation, any warranties or conditions
-   of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
-   PARTICULAR PURPOSE. You are solely responsible for determining the
-   appropriateness of using or redistributing the Work and assume any
-   risks associated with Your exercise of permissions under this License.
+RUN curl -fsSL https://download.docker.com/linux/debian/gpg | apt-key add - \
+    && add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/debian stretch stable" \
+    && apt-get update \
+    && apt-get -y install --no-install-recommends docker-ce \
+    && apt-get autoremove -yqq --purge \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-8. Limitation of Liability. In no event and under no legal theory,
-   whether in tort (including negligence), contract, or otherwise,
-   unless required by applicable law (such as deliberate and grossly
-   negligent acts) or agreed to in writing, shall any Contributor be
-   liable to You for damages, including any direct, indirect, special,
-   incidental, or consequential damages of any character arising as a
-   result of this License or out of the use or inability to use the
-   Work (including but not limited to damages for loss of goodwill,
-   work stoppage, computer failure or malfunction, or any and all
-   other commercial damages or losses), even if such Contributor
-   has been advised of the possibility of such damages.
+ARG KUBECTL_VERSION="v1.15.0"
+ENV KUBECTL_VERSION=${KUBECTL_VERSION}
+ARG KIND_VERSION="v0.5.0"
+ENV KIND_VERSION=${KIND_VERSION}
 
-9. Accepting Warranty or Additional Liability. While redistributing
-   the Work or Derivative Works thereof, You may choose to offer,
-   and charge a fee for, acceptance of support, warranty, indemnity,
-   or other liability obligations and/or rights consistent with this
-   License. However, in accepting such obligations, You may act only
-   on Your own behalf and on Your sole responsibility, not on behalf
-   of any other Contributor, and only if You agree to indemnify,
-   defend, and hold each Contributor harmless for any liability
-   incurred by, or claims asserted against, such Contributor by reason
-   of your accepting any such warranty or additional liability.
+RUN curl -Lo kubectl \
+  "https://storage.googleapis.com/kubernetes-release/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" \
+  && chmod +x kubectl \
+  && mv kubectl /usr/local/bin/kubectl
 
-END OF TERMS AND CONDITIONS
+RUN curl -Lo kind \
+   "https://github.com/kubernetes-sigs/kind/releases/download/${KIND_VERSION}/kind-linux-amd64" \
+   && chmod +x kind \
+   && mv kind /usr/local/bin/kind
 
-APPENDIX: How to apply the Apache License to your work.
+ARG RAT_VERSION="0.13"
 
-   To apply the Apache License to your work, attach the following
-   boilerplate notice, with the fields enclosed by brackets "[]"
-   replaced with your own identifying information. (Don't include
-   the brackets!)  The text should be enclosed in the appropriate
-   comment syntax for the file format. We also recommend that a
-   file or class name and description of purpose be included on the
-   same "printed page" as the copyright notice for easier
-   identification within third-party archives.
+ENV RAT_VERSION="${RAT_VERSION}" \
+    RAT_JAR="/opt/apache-rat-${RAT_VERSION}.jar" \
+    RAT_URL="https://repo1.maven.org/maven2/org/apache/rat/apache-rat/${RAT_VERSION}/apache-rat-${RAT_VERSION}.jar"
+ENV RAT_JAR_MD5="${RAT_JAR}.md5" \
+    RAT_URL_MD5="${RAT_URL}.md5"
 
-Copyright [yyyy] [name of copyright owner]
+RUN echo "Downloading RAT from ${RAT_URL} to ${RAT_JAR}" \
+    && curl -sL "${RAT_URL}" > "${RAT_JAR}" \
+    && curl -sL "${RAT_URL_MD5}" > "${RAT_JAR_MD5}" \
+    && jar -tf "${RAT_JAR}" >/dev/null \
+    && md5sum -c <<<"$(cat "${RAT_JAR_MD5}") ${RAT_JAR}"
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
+ARG HOME=/root
+ENV HOME=${HOME}
 
-    http://www.apache.org/licenses/LICENSE-2.0
+ARG AIRFLOW_HOME=/root/airflow
+ENV AIRFLOW_HOME=${AIRFLOW_HOME}
 
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+ARG AIRFLOW_SOURCES=/opt/airflow
+ENV AIRFLOW_SOURCES=${AIRFLOW_SOURCES}
 
-============================================================================
-   APACHE AIRFLOW SUBCOMPONENTS:
+WORKDIR ${AIRFLOW_SOURCES}
 
-   The Apache Airflow project contains subcomponents with separate copyright
-   notices and license terms. Your use of the source code for the these
-   subcomponents is subject to the terms and conditions of the following
-   licenses.
+RUN mkdir -pv ${AIRFLOW_HOME} \
+    mkdir -pv ${AIRFLOW_HOME}/dags \
+    mkdir -pv ${AIRFLOW_HOME}/logs
 
+# Increase the value here to force reinstalling Apache Airflow pip dependencies
+ARG PIP_DEPENDENCIES_EPOCH_NUMBER="2"
+ENV PIP_DEPENDENCIES_EPOCH_NUMBER=${PIP_DEPENDENCIES_EPOCH_NUMBER}
 
-========================================================================
-Third party Apache 2.0 licenses
-========================================================================
+# Optimizing installation of Cassandra driver
+# Speeds up building the image - cassandra driver without CYTHON saves around 10 minutes
+ARG CASS_DRIVER_NO_CYTHON="1"
+# Build cassandra driver on multiple CPUs
+ARG CASS_DRIVER_BUILD_CONCURRENCY="8"
 
-The following components are provided under the Apache 2.0 License.
-See project link for details. The text of each license is also included
-at licenses/LICENSE-[project].txt.
+ENV CASS_DRIVER_BUILD_CONCURRENCY=${CASS_DRIVER_BUILD_CONCURRENCY}
+ENV CASS_DRIVER_NO_CYTHON=${CASS_DRIVER_NO_CYTHON}
 
-    (ALv2 License) hue v4.3.0 (https://github.com/cloudera/hue/)
-    (ALv2 License) jqclock v2.3.0 (https://github.com/JohnRDOrazio/jQuery-Clock-Plugin)
-    (ALv2 License) bootstrap3-typeahead v4.0.2 (https://github.com/bassjobsen/Bootstrap-3-Typeahead)
-    (ALv2 License) airflow.contrib.auth.backends.github_enterprise_auth
+# By default PIP install run without cache to make image smaller
+ARG PIP_NO_CACHE_DIR="true"
+ENV PIP_NO_CACHE_DIR=${PIP_NO_CACHE_DIR}
+RUN echo "Pip no cache dir: ${PIP_NO_CACHE_DIR}"
 
-========================================================================
-MIT licenses
-========================================================================
+# PIP version used to install dependencies
+ARG PIP_VERSION="19.0.2"
+ENV PIP_VERSION=${PIP_VERSION}
+RUN echo "Pip version: ${PIP_VERSION}"
 
-The following components are provided under the MIT License. See project link for details.
-The text of each license is also included at licenses/LICENSE-[project].txt.
+RUN pip install --upgrade pip==${PIP_VERSION}
 
-    (MIT License) jquery v2.1.4 (https://jquery.org/license/)
-    (MIT License) dagre-d3 v0.6.1 (https://github.com/cpettitt/dagre-d3)
-    (MIT License) bootstrap v3.2 (https://github.com/twbs/bootstrap/)
-    (MIT License) d3-tip v0.6.3 (https://github.com/Caged/d3-tip)
-    (MIT License) dataTables v1.10.10 (https://datatables.net)
-    (MIT License) WebGL-2D (git-commit 9a7ec26) (https://github.com/gameclosure/webgl-2d)
-    (MIT License) Underscorejs v1.5.0 (http://underscorejs.org)
-    (MIT License) Bootstrap Toggle v2.2.0 (http://www.bootstraptoggle.com)
-    (MIT License) normalize.css v3.0.2 (http://necolas.github.io/normalize.css/)
-    (MIT License) ElasticMock v1.3.2 (https://github.com/vrcmarcos/elasticmock)
-    (MIT License) MomentJS v2.22.2 (http://momentjs.com/)
-    (MIT License) python-slugify v2.0.1 (https://github.com/un33k/python-slugify)
-    (MIT License) python-nvd3 v0.15.0 (https://github.com/areski/python-nvd3)
+ARG AIRFLOW_REPO=apache/airflow
+ENV AIRFLOW_REPO=${AIRFLOW_REPO}
 
-========================================================================
-BSD 2-Clause licenses
-========================================================================
-The following components are provided under the BSD 2-Clause license.
-See file headers and project links for details.
-The text of each license is also included at licenses/LICENSE-[project].txt.
+ARG AIRFLOW_BRANCH=master
+ENV AIRFLOW_BRANCH=${AIRFLOW_BRANCH}
 
-    (BSD 2 License) flask-kerberos v1.0.4 (https://github.com/mkomitee/flask-kerberos)
+ENV AIRFLOW_GITHUB_DOWNLOAD=https://raw.githubusercontent.com/${AIRFLOW_REPO}/${AIRFLOW_BRANCH}
 
-========================================================================
-BSD 3-Clause licenses
-========================================================================
-The following components are provided under the BSD 3-Clause license. See project links for details.
-The text of each license is also included at licenses/LICENSE-[project].txt.
+# Airflow Extras installed
+ARG AIRFLOW_EXTRAS="all"
+ENV AIRFLOW_EXTRAS=${AIRFLOW_EXTRAS}
 
-    (BSD 3 License) Ace v1.1.8 (https://github.com/ajaxorg/ace)
-    (BSD 3 License) d3js v3.5.17 (https://d3js.org)
-    (BSD 3 License) parallel-coordinates v0.7.0 (http://syntagmatic.github.com/parallel-coordinates/)
-    (BSD 3 License) scikit-learn v0.19.1 (https://github.com/scikit-learn/scikit-learn)
+RUN echo "Installing with extras: ${AIRFLOW_EXTRAS}."
+
+ARG AIRFLOW_CONTAINER_CI_OPTIMISED_BUILD="false"
+ENV AIRFLOW_CONTAINER_CI_OPTIMISED_BUILD=${AIRFLOW_CONTAINER_CI_OPTIMISED_BUILD}
+
+# By changing the CI build epoch we can force reinstalling Arflow from the current master
+# It can also be overwritten manually by setting the AIRFLOW_CI_BUILD_EPOCH environment variable.
+ARG AIRFLOW_CI_BUILD_EPOCH="1"
+ENV AIRFLOW_CI_BUILD_EPOCH=${AIRFLOW_CI_BUILD_EPOCH}
+
+# In case of CI-optimised builds we want to pre-install master version of airflow dependencies so that
+# We do not have to always reinstall it from the scratch.
+# This can be reinstalled from latest master by increasing PIP_DEPENDENCIES_EPOCH_NUMBER.
+# And is automatically reinstalled from the scratch every month
+RUN \
+    if [[ "${AIRFLOW_CONTAINER_CI_OPTIMISED_BUILD}" == "true" ]]; then \
+        pip install \
+        "https://github.com/apache/airflow/archive/${AIRFLOW_BRANCH}.tar.gz#egg=apache-airflow[${AIRFLOW_EXTRAS}]" \
+        && pip uninstall --yes apache-airflow; \
+    fi
+
+# Install NPM dependencies here. The NPM dependencies don't change that often and we already have pip
+# installed dependencies in case of CI optimised build, so it is ok to install NPM deps here
+# Rather than after setup.py is added.
+COPY airflow/www_rbac/package-lock.json ${AIRFLOW_SOURCES}/airflow/www_rbac/package-lock.json
+COPY airflow/www_rbac/package.json ${AIRFLOW_SOURCES}/airflow/www_rbac/package.json
+
+WORKDIR ${AIRFLOW_SOURCES}/airflow/www_rbac
+
+RUN npm ci
+
+WORKDIR ${AIRFLOW_SOURCES}
+
+# Note! We are copying everything with airflow:airflow user:group even if we use root to run the scripts
+# This is fine as root user will be able to use those dirs anyway.
+
+# Airflow sources change frequently but dependency configuration won't change that often
+# We copy setup.py and other files needed to perform setup of dependencies
+# So in case setup.py changes we can install latest dependencies required.
+COPY setup.py ${AIRFLOW_SOURCES}/setup.py
+COPY setup.cfg ${AIRFLOW_SOURCES}/setup.cfg
+
+COPY airflow/version.py ${AIRFLOW_SOURCES}/airflow/version.py
+COPY airflow/__init__.py ${AIRFLOW_SOURCES}/airflow/__init__.py
+COPY airflow/bin/airflow ${AIRFLOW_SOURCES}/airflow/bin/airflow
+
+# The goal of this line is to install the dependencies from the most current setup.py from sources
+# This will be usually incremental small set of packages in CI optimized build, so it will be very fast
+# In non-CI optimized build this will install all dependencies before installing sources.
+RUN pip install -e ".[${AIRFLOW_EXTRAS}]"
+
+WORKDIR ${AIRFLOW_SOURCES}/airflow/www_rbac
+
+# Copy all www files here so that we can run npm building for production
+COPY airflow/www_rbac/ ${AIRFLOW_SOURCES}/airflow/www_rbac/
+
+# Package NPM for production
+RUN npm run prod
+
+COPY ./scripts/docker/entrypoint.sh /entrypoint.sh
+
+# Copy selected subdirectories only
+COPY .github/ ${AIRFLOW_SOURCES}/.github/
+COPY dags/ ${AIRFLOW_SOURCES}/dags/
+COPY common/ ${AIRFLOW_SOURCES}/common/
+COPY licenses/ ${AIRFLOW_SOURCES}/licenses/
+COPY scripts/ci/ ${AIRFLOW_SOURCES}/scripts/ci/
+COPY docs/ ${AIRFLOW_SOURCES}/docs/
+COPY tests/ ${AIRFLOW_SOURCES}/tests/
+COPY airflow/ ${AIRFLOW_SOURCES}/airflow/
+COPY .coveragerc .rat-excludes .flake8 LICENSE MANIFEST.in NOTICE CHANGELOG.txt \
+     .github pytest.ini \
+     setup.cfg setup.py \
+     ${AIRFLOW_SOURCES}/
+
+WORKDIR ${AIRFLOW_SOURCES}
+
+# Additional python deps to install
+ARG ADDITIONAL_PYTHON_DEPS=""
+
+RUN if [[ -n "${ADDITIONAL_PYTHON_DEPS}" ]]; then \
+        pip install ${ADDITIONAL_PYTHON_DEPS}; \
+    fi
+
+WORKDIR ${AIRFLOW_SOURCES}
+
+ENV PATH="${HOME}:${PATH}"
+
+EXPOSE 8080
+
+ENTRYPOINT ["/usr/local/bin/dumb-init", "--", "/entrypoint.sh"]
+
+CMD ["--help"]
