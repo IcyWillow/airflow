@@ -445,7 +445,7 @@ def do_setup():
         # DEPENDENCIES_EPOCH_NUMBER in the Dockerfile
         #####################################################################################################
         install_requires=[
-            'alembic==2.0',
+            'alembic==1.4.3',
             'argcomplete~=1.10',
             'attrs~=20.1.0',
             'cached_property~=1.5',
