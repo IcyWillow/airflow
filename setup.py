@@ -445,7 +445,7 @@ def do_setup():
         # DEPENDENCIES_EPOCH_NUMBER in the Dockerfile
         #####################################################################################################
         install_requires=[
-            'alembic>=1.0, <2.0',
+            'alembic==2.0',
             'argcomplete~=1.10',
             'attrs~=20.1.0',
             'cached_property~=1.5',
@@ -464,9 +464,9 @@ def do_setup():
             'flask-wtf>=0.14.2, <0.15',
             'funcsigs>=1.0.0, <2.0.0',
             'future>=0.16.0, <0.17',
-            'graphviz>=0.12',
+            'graphviz==0.12',
             'gunicorn>=19.5.0, <20.0',
-            'iso8601>=0.1.12',
+            'iso8601==0.1.12',
             'jinja2>=2.10.1, <2.11.0',
             'json-merge-patch==0.2',
             'jsonschema~=3.0',
@@ -490,11 +490,11 @@ def do_setup():
             'tenacity==4.12.0',
             'termcolor==1.1.0',
             'text-unidecode==1.2',
-            'thrift>=0.9.2',
+            'thrift==0.9.2',
             'typing;python_version<"3.5"',
             'typing-extensions>=3.7.4;python_version<"3.8"',
             'tzlocal>=1.4,<2.0.0',
-            'unicodecsv>=0.14.1',
+            'unicodecsv==0.14.1',
             'zope.deprecation>=4.0, <5.0',
         ],
         #####################################################################################################
