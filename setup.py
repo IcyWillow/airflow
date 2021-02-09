@@ -184,7 +184,7 @@ cgroups = [
 cloudant = [
     'cloudant>=0.5.9,<2.0',
 ]
-crypto = ['cryptography>=0.9.3']
+crypto = ['cryptography==0.9.3']
 dask = [
     'distributed>=1.17.1, <2',
 ]
